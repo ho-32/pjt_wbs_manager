@@ -1,0 +1,7 @@
+node_modules/
+dist/
+server/data/*.csv
+server/data/*.tmp
+.DS_Store
+*.log
+*.tsbuildinfo
