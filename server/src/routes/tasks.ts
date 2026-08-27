@@ -193,8 +193,10 @@ tasksRouter.get("/export", async (req, res) => {
     "Content-Disposition",
     `attachment; filename="tasks.csv"; filename*=UTF-8''${encodeURIComponent(base)}.csv`
   );
-  // Leading BOM so the file opens with correct Korean text when double-clicked into Excel
-  // (this is only added to the downloaded copy, not to the file persisted under data/tasks/).
+  // Leading BOM so the file opens with correct Korean text when double-clicked into Excel.
+  // exportCsv() reads straight from the in-memory table via stringifyCSV (not persist()),
+  // so it has no BOM of its own yet - add it here, same as persist() now does for the
+  // file on disk under data/tasks/.
   res.send("\uFEFF" + csv);
 });
 

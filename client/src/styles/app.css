@@ -92,6 +92,13 @@ a {
 .btn.ghost:hover {
   background: #ebedf2;
 }
+.btn.ghost.active {
+  background: var(--accent);
+  color: #fff;
+}
+.btn.ghost.active:hover {
+  background: var(--accent-hover);
+}
 .btn.small {
   padding: 5px 10px;
   font-size: 13px;
@@ -526,20 +533,39 @@ textarea:focus {
   color: var(--text-muted);
   padding-left: 6px;
   line-height: 22px;
-  border-left: 1px solid var(--border);
+  /* Thicker than the day/week cell borders so a month boundary reads at a glance. */
+  border-left: 2px solid var(--border-strong);
   flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
-.header-days {
+/* "월" unit: this is the only header row, so it takes over the full 48px header height
+   (matching header-left-row) and reads as the primary label instead of a small caption. */
+.header-months.primary {
+  height: 48px;
+  border-bottom: none;
+}
+.header-months.primary span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 48px;
+}
+.header-days,
+.header-weeks {
   display: flex;
   height: 26px;
 }
-.header-days span {
+.header-days span,
+.header-weeks span {
   font-size: 11px;
   text-align: center;
   line-height: 26px;
   color: var(--text-muted);
   flex-shrink: 0;
   border-left: 1px solid #f0f1f4;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .header-days span.weekend {
   background: #f7f8fa;
@@ -779,11 +805,33 @@ textarea:focus {
   opacity: 0.6;
 }
 
-.today-line {
+/* Day-resolution weekend shading + month-boundary markers behind the bars, independent
+   of the header unit (일/주/월) - stays visible even when the header is zoomed out. */
+.day-grid {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+}
+.day-cell {
   position: absolute;
   top: 0;
-  width: 0;
-  border-left: 1.5px dashed #d64545;
+  bottom: 0;
+}
+.day-cell.weekend {
+  background: #f7f8fa;
+}
+.day-cell.month-start {
+  border-left: 2px solid var(--border-strong);
+}
+
+/* Today's column, highlighted across the full height of the chart (background tint +
+   a border on each edge) rather than just a thin line, so it reads clearly at any zoom. */
+.today-highlight {
+  position: absolute;
+  top: 0;
+  background: rgba(214, 69, 69, 0.07);
+  border-left: 1.5px solid #d64545;
+  border-right: 1.5px solid #d64545;
   z-index: 4;
   pointer-events: none;
 }

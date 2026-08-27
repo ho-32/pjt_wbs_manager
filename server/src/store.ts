@@ -46,7 +46,11 @@ export class CsvStore<T extends WithId> {
       this.items.map((item) => this.toRow(item))
     );
     const tmpPath = `${this.filePath}.tmp`;
-    await fs.writeFile(tmpPath, csv, "utf-8");
+    // Leading BOM so the file opens with correct Korean text if double-clicked
+    // straight into Excel on Windows (which otherwise guesses the system codepage,
+    // e.g. CP949, instead of reading it as UTF-8). parseCSV() strips a leading BOM
+    // on read, so this round-trips safely on the next load.
+    await fs.writeFile(tmpPath, "\uFEFF" + csv, "utf-8");
     await fs.rename(tmpPath, this.filePath);
   }
 

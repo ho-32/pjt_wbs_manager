@@ -10,7 +10,17 @@ import {
 } from "../utils/tree";
 import { addDays, diffDays, parseDateStr, todayStr, toDateStr } from "../utils/date";
 import { computeScheduleStatus } from "../utils/schedule";
-import { COL, computeLeftWidth, OPTIONAL_COLUMNS, OptionalColumnKey, ROW_HEIGHT } from "../utils/layout";
+import {
+  COL,
+  computeLeftWidth,
+  dayWidthForUnit,
+  MIN_DAY_WIDTH,
+  OPTIONAL_COLUMNS,
+  OptionalColumnKey,
+  pickDefaultUnit,
+  ROW_HEIGHT,
+  TimeUnit,
+} from "../utils/layout";
 import { GanttRow, DropPosition } from "./GanttRow";
 
 interface WbsGanttProps {
@@ -48,10 +58,12 @@ function computeAutoDateRange(tasks: Task[]) {
 }
 
 const MONTH_NAMES = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
+const UNIT_LABELS: Record<TimeUnit, string> = { day: "일", week: "주", month: "월" };
 
-// day-width steps for zoom in/out, px per day
-const ZOOM_LEVELS = [10, 14, 18, 26, 34, 44, 56];
-const DEFAULT_ZOOM_INDEX = 3; // 26px, matches the original fixed layout
+// day-width steps for zoom in/out, px per day (floor kept at MIN_DAY_WIDTH so a two-digit
+// day number in the header never overlaps its neighbor - see utils/layout.ts)
+const ZOOM_LEVELS = [MIN_DAY_WIDTH, 26, 34, 44, 56, 70, 88];
+const DEFAULT_ZOOM_INDEX = 1; // 26px, matches the original fixed layout
 
 export function WbsGantt({
   tasks,
@@ -69,10 +81,21 @@ export function WbsGantt({
   const [overPosition, setOverPosition] = useState<DropPosition | null>(null);
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
   const [rangeOverride, setRangeOverride] = useState<RangeOverride | null>(null);
+  // Seeded once from the initial auto date range (see pickDefaultUnit); the user can
+  // switch it freely afterwards via the 일/주/월 buttons and it won't reset on its own.
+  const [unit, setUnit] = useState<TimeUnit>(() => {
+    const r = computeAutoDateRange(tasks);
+    return pickDefaultUnit(diffDays(r.maxDate, r.minDate) + 1);
+  });
   const [hiddenColumns, setHiddenColumns] = useState<Set<OptionalColumnKey>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const dayWidth = ZOOM_LEVELS[zoomIndex];
+  // The zoom level is a target width for whichever column the current unit draws (a day,
+  // a week, or a month) - not always the day column - so switching unit reflows how many
+  // days fit on screen instead of just relabeling the same day-wide columns (see
+  // dayWidthForUnit for why).
+  const targetColumnWidth = ZOOM_LEVELS[zoomIndex];
+  const dayWidth = dayWidthForUnit(targetColumnWidth, unit);
   const leftWidth = useMemo(() => computeLeftWidth(hiddenColumns), [hiddenColumns]);
   const toggleColumn = (key: OptionalColumnKey) => {
     setHiddenColumns((prev) => {
@@ -130,6 +153,32 @@ export function WbsGantt({
     }
     return groups;
   }, [days]);
+
+  // Calendar weeks (Sun–Sat), clipped to the visible range at both ends - used for the
+  // "주" header unit so a long range doesn't need one label per day.
+  const weekGroups = useMemo(() => {
+    const groups: { label: string; days: number }[] = [];
+    for (const d of days) {
+      if (groups.length === 0 || d.getDay() === 0) {
+        groups.push({ label: `${d.getMonth() + 1}/${d.getDate()}`, days: 1 });
+      } else {
+        groups[groups.length - 1].days++;
+      }
+    }
+    return groups;
+  }, [days]);
+
+  // Day-resolution weekend shading + month-boundary markers behind the bars, independent
+  // of the header unit above - these stay visible even when zoomed out to week/month.
+  const dayMarkers = useMemo(() => {
+    const marks: { key: number; left: number; weekend: boolean; monthStart: boolean }[] = [];
+    days.forEach((d, i) => {
+      const weekend = d.getDay() === 0 || d.getDay() === 6;
+      const monthStart = i > 0 && d.getDate() === 1;
+      if (weekend || monthStart) marks.push({ key: i, left: i * dayWidth, weekend, monthStart });
+    });
+    return marks;
+  }, [days, dayWidth]);
 
   const handleToggleExpand = (id: string) => {
     const next = new Set(expanded);
@@ -237,7 +286,7 @@ export function WbsGantt({
           <button className="btn ghost small" onClick={zoomOut} disabled={zoomIndex === 0} title="축소">
             −
           </button>
-          <span className="zoom-value">{dayWidth}px/일</span>
+          <span className="zoom-value">{targetColumnWidth}px/{UNIT_LABELS[unit]}</span>
           <button
             className="btn ghost small"
             onClick={zoomIn}
@@ -249,6 +298,20 @@ export function WbsGantt({
           <button className="btn ghost small" onClick={zoomReset}>
             초기화
           </button>
+        </div>
+
+        <div className="control-group">
+          <span className="control-label">기간 단위</span>
+          {(["day", "week", "month"] as TimeUnit[]).map((u) => (
+            <button
+              key={u}
+              className={`btn ghost small${unit === u ? " active" : ""}`}
+              onClick={() => setUnit(u)}
+              title={`${UNIT_LABELS[u]} 단위로 헤더 표시`}
+            >
+              {UNIT_LABELS[u]}
+            </button>
+          ))}
         </div>
 
         <div className="control-group">
@@ -307,32 +370,54 @@ export function WbsGantt({
               </div>
             </div>
             <div className="header-timeline" style={{ width: timelineWidth }}>
-              <div className="header-months">
+              <div className={`header-months${unit === "month" ? " primary" : ""}`}>
                 {monthGroups.map((g, i) => (
                   <span key={i} style={{ width: g.days * dayWidth }}>
                     {g.label}
                   </span>
                 ))}
               </div>
-              <div className="header-days">
-                {days.map((d, i) => (
-                  <span
-                    key={i}
-                    style={{ width: dayWidth }}
-                    className={d.getDay() === 0 || d.getDay() === 6 ? "weekend" : ""}
-                  >
-                    {d.getDate()}
-                  </span>
-                ))}
-              </div>
+              {unit === "day" && (
+                <div className="header-days">
+                  {days.map((d, i) => (
+                    <span
+                      key={i}
+                      style={{ width: dayWidth, minWidth: MIN_DAY_WIDTH }}
+                      className={d.getDay() === 0 || d.getDay() === 6 ? "weekend" : ""}
+                    >
+                      {d.getDate()}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {unit === "week" && (
+                <div className="header-weeks">
+                  {weekGroups.map((g, i) => (
+                    <span key={i} style={{ width: g.days * dayWidth }}>
+                      {g.label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           <div className="wbs-body" style={{ height: bodyHeight, position: "relative" }}>
+            <div className="day-grid" style={{ left: leftWidth, top: 0, width: timelineWidth, height: bodyHeight }}>
+              {dayMarkers.map((m) => (
+                <div
+                  key={m.key}
+                  className={`day-cell${m.weekend ? " weekend" : ""}${m.monthStart ? " month-start" : ""}`}
+                  style={{ left: m.left, width: dayWidth }}
+                />
+              ))}
+            </div>
             {todayInRange && (
               <div
-                className="today-line"
-                style={{ left: leftWidth + todayLeft, height: bodyHeight }}
+                className="today-highlight"
+                // Floor the visual width only (never the `left` position) - at a wide
+                // zoomed-out month view a single day can be under 1px and disappear.
+                style={{ left: leftWidth + todayLeft, width: Math.max(dayWidth, 3), height: bodyHeight }}
                 title={`오늘 ${today}`}
               />
             )}
