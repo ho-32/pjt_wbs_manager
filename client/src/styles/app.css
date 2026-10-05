@@ -484,6 +484,17 @@ textarea:focus {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+  cursor: grab;
+}
+.wbs-scroll.panning {
+  cursor: grabbing;
+}
+/* Form controls keep their own cursor (text/pointer) instead of inheriting the grab hand. */
+.wbs-scroll input,
+.wbs-scroll select,
+.wbs-scroll button,
+.wbs-scroll textarea {
+  cursor: initial;
 }
 
 .wbs-inner {

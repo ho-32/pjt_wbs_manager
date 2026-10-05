@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Task } from "../types";
 import {
   buildTree,
@@ -60,10 +60,15 @@ function computeAutoDateRange(tasks: Task[]) {
 const MONTH_NAMES = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
 const UNIT_LABELS: Record<TimeUnit, string> = { day: "일", week: "주", month: "월" };
 
-// day-width steps for zoom in/out, px per day (floor kept at MIN_DAY_WIDTH so a two-digit
-// day number in the header never overlaps its neighbor - see utils/layout.ts)
-const ZOOM_LEVELS = [MIN_DAY_WIDTH, 26, 34, 44, 56, 70, 88];
-const DEFAULT_ZOOM_INDEX = 1; // 26px, matches the original fixed layout
+// Continuous zoom range for the "target column width" (px) - floor kept at MIN_DAY_WIDTH so
+// a two-digit day number in the header never overlaps its neighbor (see utils/layout.ts).
+const MIN_ZOOM_WIDTH = MIN_DAY_WIDTH;
+const MAX_ZOOM_WIDTH = 88;
+const DEFAULT_ZOOM_WIDTH = 26; // matches the original fixed layout
+const ZOOM_BUTTON_FACTOR = 1.28; // per-click step for the +/- buttons
+const WHEEL_ZOOM_SENSITIVITY = 0.0015; // Ctrl+wheel: px of deltaY -> zoom factor
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export function WbsGantt({
   tasks,
@@ -79,7 +84,8 @@ export function WbsGantt({
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [overPosition, setOverPosition] = useState<DropPosition | null>(null);
-  const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
+  const [targetColumnWidth, setTargetColumnWidth] = useState(DEFAULT_ZOOM_WIDTH);
+  const [isPanning, setIsPanning] = useState(false);
   const [rangeOverride, setRangeOverride] = useState<RangeOverride | null>(null);
   // Seeded once from the initial auto date range (see pickDefaultUnit); the user can
   // switch it freely afterwards via the 일/주/월 buttons and it won't reset on its own.
@@ -94,7 +100,6 @@ export function WbsGantt({
   // a week, or a month) - not always the day column - so switching unit reflows how many
   // days fit on screen instead of just relabeling the same day-wide columns (see
   // dayWidthForUnit for why).
-  const targetColumnWidth = ZOOM_LEVELS[zoomIndex];
   const dayWidth = dayWidthForUnit(targetColumnWidth, unit);
   const leftWidth = useMemo(() => computeLeftWidth(hiddenColumns), [hiddenColumns]);
   const toggleColumn = (key: OptionalColumnKey) => {
@@ -229,9 +234,84 @@ export function WbsGantt({
   const bodyHeight = rows.length * ROW_HEIGHT;
 
   // ---- zoom / pan controls ----
-  const zoomIn = () => setZoomIndex((i) => Math.min(i + 1, ZOOM_LEVELS.length - 1));
-  const zoomOut = () => setZoomIndex((i) => Math.max(i - 1, 0));
-  const zoomReset = () => setZoomIndex(DEFAULT_ZOOM_INDEX);
+  const zoomIn = () => setTargetColumnWidth((w) => clamp(w * ZOOM_BUTTON_FACTOR, MIN_ZOOM_WIDTH, MAX_ZOOM_WIDTH));
+  const zoomOut = () => setTargetColumnWidth((w) => clamp(w / ZOOM_BUTTON_FACTOR, MIN_ZOOM_WIDTH, MAX_ZOOM_WIDTH));
+  const zoomReset = () => setTargetColumnWidth(DEFAULT_ZOOM_WIDTH);
+
+  // Ctrl+wheel zoom-to-pointer: re-anchored via pendingZoomScrollRef once the width that
+  // produced it actually lands in the DOM (see the layout effect below).
+  const pendingZoomScrollRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      // Browsers (and React's own root listener) treat wheel as passive by default, so
+      // preventDefault only works because this listener itself is registered non-passive
+      // below - without it the page/browser would pinch-zoom instead of the chart.
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const contentX = e.clientX - rect.left + el.scrollLeft;
+      const timelineX = Math.max(contentX - leftWidth, 0);
+      const dayIndexUnderCursor = timelineX / dayWidth;
+
+      const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
+      const nextWidth = clamp(targetColumnWidth * factor, MIN_ZOOM_WIDTH, MAX_ZOOM_WIDTH);
+      const nextDayWidth = dayWidthForUnit(nextWidth, unit);
+
+      // Keep the same calendar day under the cursor: solve for the scrollLeft that puts
+      // that day's new pixel position back under e.clientX.
+      pendingZoomScrollRef.current = dayIndexUnderCursor * nextDayWidth + leftWidth - (e.clientX - rect.left);
+      setTargetColumnWidth(nextWidth);
+    };
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [leftWidth, unit, dayWidth, targetColumnWidth]);
+
+  // Runs after the new dayWidth/timelineWidth have actually been painted, so the scrollLeft
+  // we set lands within the *new* scrollable range instead of being clamped against the old one.
+  useLayoutEffect(() => {
+    if (pendingZoomScrollRef.current === null) return;
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = Math.max(pendingZoomScrollRef.current, 0);
+    pendingZoomScrollRef.current = null;
+  }, [dayWidth]);
+
+  // Drag-to-pan: left-button drag anywhere on the chart EXCEPT on a task row (rows are
+  // already HTML5-draggable for reordering - see GanttRow - so panning only engages on the
+  // header ruler and empty background, leaving row drag-and-drop completely untouched).
+  const panStartRef = useRef<{ x: number; scrollLeft: number } | null>(null);
+
+  const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest(".gantt-row, input, select, button, textarea, a")) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    panStartRef.current = { x: e.clientX, scrollLeft: el.scrollLeft };
+    setIsPanning(true);
+  };
+
+  useEffect(() => {
+    if (!isPanning) return;
+    const handleMove = (e: MouseEvent) => {
+      const el = scrollRef.current;
+      const start = panStartRef.current;
+      if (!el || !start) return;
+      el.scrollLeft = start.scrollLeft - (e.clientX - start.x);
+    };
+    const handleUp = () => {
+      setIsPanning(false);
+      panStartRef.current = null;
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [isPanning]);
 
   const pan = (direction: -1 | 1) => {
     const el = scrollRef.current;
@@ -283,14 +363,14 @@ export function WbsGantt({
       <div className="gantt-controls">
         <div className="control-group">
           <span className="control-label">확대/축소</span>
-          <button className="btn ghost small" onClick={zoomOut} disabled={zoomIndex === 0} title="축소">
+          <button className="btn ghost small" onClick={zoomOut} disabled={targetColumnWidth <= MIN_ZOOM_WIDTH + 0.5} title="축소">
             −
           </button>
-          <span className="zoom-value">{targetColumnWidth}px/{UNIT_LABELS[unit]}</span>
+          <span className="zoom-value">{Math.round(targetColumnWidth)}px/{UNIT_LABELS[unit]}</span>
           <button
             className="btn ghost small"
             onClick={zoomIn}
-            disabled={zoomIndex === ZOOM_LEVELS.length - 1}
+            disabled={targetColumnWidth >= MAX_ZOOM_WIDTH - 0.5}
             title="확대"
           >
             +
@@ -354,7 +434,11 @@ export function WbsGantt({
         </details>
       </div>
 
-      <div className="wbs-scroll" ref={scrollRef}>
+      <div
+        className={`wbs-scroll${isPanning ? " panning" : ""}`}
+        ref={scrollRef}
+        onMouseDown={handleCanvasMouseDown}
+      >
         <div className="wbs-inner" style={{ width: leftWidth + timelineWidth }}>
           <div className="wbs-header">
             <div className="header-left" style={{ width: leftWidth }}>
