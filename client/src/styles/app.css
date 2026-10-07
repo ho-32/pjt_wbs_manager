@@ -714,6 +714,15 @@ textarea:focus {
   border: 1px solid var(--accent);
   border-radius: 4px;
 }
+/* Native <input type="date"> renders the year using whatever date format the OS/browser
+   locale resolves to - on some locales (seen on Windows) that's the full "YYYY-MM-DD" form,
+   which overflows this cell's ~87px width and gets clipped to "20..". Hiding just the year
+   sub-field keeps the cell to "MM/DD" regardless of locale (Chrome/Edge only - the stored
+   date value and the calendar-icon picker, including picking a different year, are both
+   unaffected; this only hides the inline year *text*). */
+.inline-date-input::-webkit-datetime-edit-year-field {
+  display: none;
+}
 .left-cell:first-child {
   border-left: none;
   justify-content: space-between;
