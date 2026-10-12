@@ -36,3 +36,11 @@ export function formatDisplay(s: string): string {
   const [y, m, d] = s.split("-");
   return `${y}.${m}.${d}`;
 }
+
+/** "MM/DD" for the compact inline gantt-row date cells - always this exact format,
+ *  independent of the OS/browser locale (see DateCell in GanttRow.tsx for why). */
+export function formatMonthDay(s: string): string {
+  if (!s) return "";
+  const [, m, d] = s.split("-");
+  return m && d ? `${m}/${d}` : "";
+}

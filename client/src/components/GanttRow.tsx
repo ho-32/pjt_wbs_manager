@@ -1,7 +1,7 @@
 import { DragEvent, useEffect, useState } from "react";
 import { STATUS_COLORS, STATUS_LABELS, TASK_STATUSES, Task, TaskNode, TaskStatus } from "../types";
 import { SCHEDULE_COLORS, SCHEDULE_LABELS, ScheduleStatus, isDelayed } from "../utils/schedule";
-import { formatDisplay, parseDateStr, diffDays, todayStr } from "../utils/date";
+import { formatDisplay, formatMonthDay, parseDateStr, diffDays, todayStr } from "../utils/date";
 import { COL, INDENT, OptionalColumnKey, ROW_HEIGHT } from "../utils/layout";
 
 export type DropPosition = "before" | "after" | "inside";
@@ -66,6 +66,41 @@ function EditableText({ value, placeholder, onCommit }: { value: string; placeho
 /** Best-effort "http(s)://" prefix so a bare "example.com" still opens correctly. */
 function normalizeUrl(url: string): string {
   return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+}
+
+/**
+ * Compact date cell: a real <input type="date"> underneath for picking/typing (its own
+ * native text is only shown while focused), with an always-"MM/DD"-formatted label drawn
+ * on top while blurred. The browser's native date text is locale-formatted (full
+ * "YYYY-MM-DD" on some locales, e.g. seen on Windows) and can't be reliably trimmed down to
+ * just "MM/DD" with CSS alone - every attempt to hide just the right separator via
+ * ::-webkit-datetime-edit-text:nth-of-type (etc.) silently no-ops in Chrome, so the only
+ * robust fix is to not rely on the native rendering for the at-a-glance label at all.
+ */
+function DateCell({
+  value,
+  onChange,
+  inferred,
+  title,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  inferred?: boolean;
+  title?: string;
+}) {
+  const display = formatMonthDay(value);
+  return (
+    <span className={`date-cell-wrap${inferred ? " inferred" : ""}`}>
+      <input
+        type="date"
+        className={`inline-date-input${inferred ? " inferred" : ""}`}
+        value={value}
+        title={title}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <span className={`date-display-overlay${display ? "" : " empty"}`}>{display || "--/--"}</span>
+    </span>
+  );
 }
 
 export function GanttRow({
@@ -185,37 +220,21 @@ export function GanttRow({
 
       {!hiddenColumns.has("plan") && (
         <div className="left-cell dates" style={{ width: COL.plan }} onMouseDown={stopDrag}>
-          <input
-            type="date"
-            className="inline-date-input"
-            value={node.planStart}
-            onChange={(e) => onQuickUpdate(node.id, { planStart: e.target.value })}
-          />
+          <DateCell value={node.planStart} onChange={(v) => onQuickUpdate(node.id, { planStart: v })} />
           <span className="date-sep">~</span>
-          <input
-            type="date"
-            className="inline-date-input"
-            value={node.planEnd}
-            onChange={(e) => onQuickUpdate(node.id, { planEnd: e.target.value })}
-          />
+          <DateCell value={node.planEnd} onChange={(v) => onQuickUpdate(node.id, { planEnd: v })} />
         </div>
       )}
 
       {!hiddenColumns.has("actual") && (
         <div className="left-cell dates" style={{ width: COL.actual }} onMouseDown={stopDrag}>
-          <input
-            type="date"
-            className="inline-date-input"
-            value={node.actualStart}
-            onChange={(e) => onQuickUpdate(node.id, { actualStart: e.target.value })}
-          />
+          <DateCell value={node.actualStart} onChange={(v) => onQuickUpdate(node.id, { actualStart: v })} />
           <span className="date-sep">~</span>
-          <input
-            type="date"
-            className={`inline-date-input${impliedActualEnd ? " inferred" : ""}`}
+          <DateCell
             value={effectiveActualEnd}
+            inferred={impliedActualEnd}
             title={impliedActualEnd ? "실행 종료일 미입력 — 진행중이라 오늘 날짜로 표시됩니다" : undefined}
-            onChange={(e) => onQuickUpdate(node.id, { actualEnd: e.target.value })}
+            onChange={(v) => onQuickUpdate(node.id, { actualEnd: v })}
           />
         </div>
       )}

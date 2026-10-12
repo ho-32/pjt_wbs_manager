@@ -635,8 +635,8 @@ textarea:focus {
 .left-cell.dates {
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 6px;
+  gap: 3px;
+  padding: 0 4px;
 }
 .left-cell.link-cell {
   gap: 2px;
@@ -647,7 +647,7 @@ textarea:focus {
 }
 .date-sep {
   flex-shrink: 0;
-  color: #c3c7d1;
+  color: #a7abb5;
   font-size: 11px;
 }
 
@@ -683,45 +683,103 @@ textarea:focus {
   outline: none;
 }
 
-.inline-date-input {
+/*
+ * Native <input type="date"> renders its text using whatever date format the OS/browser
+ * locale resolves to - on some locales (seen on Windows) that's the full "YYYY-MM-DD" form,
+ * which overflows this ~76px cell and gets clipped to "20..". CSS can hide the year
+ * sub-field (::-webkit-datetime-edit-year-field), but which *separator* sits next to it
+ * depends on whether the locale puts the year first or last, and Chrome silently ignores
+ * every attempt to target "just that one" separator (:nth-of-type, :first/last-of-type all
+ * no-op on these internal pseudo-elements - confirmed empirically, not a guess). So instead
+ * of fighting the native rendering, .date-cell-wrap layers a locale-independent "MM/DD"
+ * label (.date-display-overlay) on top of the input and makes the input's own text
+ * transparent - except while focused, when the real (locale-formatted) native text takes
+ * over so typing/picking still has normal visual feedback.
+ */
+/* The card itself - border/radius live here, not on the input, since the input's own
+   border would sit just inside this box and double up visually. */
+.date-cell-wrap {
+  position: relative;
   flex: 1;
-  min-width: 76px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 3px 2px;
+  min-width: 68px;
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+.date-cell-wrap:hover {
+  border-color: var(--border-strong);
+  background: #fafbfc;
+}
+.date-cell-wrap:focus-within {
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.14);
+}
+.date-cell-wrap.inferred {
+  border-style: dashed;
+  border-color: #b9c4e0;
+}
+.date-cell-wrap.inferred:focus-within {
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+/* ".date-cell-wrap .inline-date-input" (not just ".inline-date-input") so this beats the
+   generic "input[type=\"date\"] { color: var(--text) }" rule near the top of this file -
+   that selector is more specific than a bare class, and was silently winning over a plain
+   ".inline-date-input { color: transparent }" here, leaving the native text visible
+   underneath the overlay. */
+.date-cell-wrap .inline-date-input {
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  padding: 3px 1px;
   font-size: 11px;
-  color: var(--text-muted);
+  color: transparent;
   background: transparent;
   text-align: center;
 }
-.inline-date-input:hover {
-  border-color: var(--border-strong);
-}
 .inline-date-input:focus {
-  border-color: var(--accent);
-  background: var(--surface);
   color: var(--text);
   outline: none;
 }
-.inline-date-input.inferred {
+/* Native calendar-picker icon: shrink it and dock it tight against the date text. */
+.date-cell-wrap .inline-date-input::-webkit-calendar-picker-indicator {
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  margin-left: 1px;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.date-cell-wrap:hover .inline-date-input::-webkit-calendar-picker-indicator,
+.date-cell-wrap .inline-date-input:focus::-webkit-calendar-picker-indicator {
+  opacity: 0.85;
+}
+.date-display-overlay {
+  position: absolute;
+  inset: 0 13px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+.date-display-overlay.empty {
+  font-weight: 500;
+  color: #a7abb5;
+}
+.inline-date-input:focus + .date-display-overlay {
+  visibility: hidden;
+}
+.date-cell-wrap.inferred .date-display-overlay {
   color: #5b8def;
   font-style: italic;
-  border-bottom: 1px dashed #b9c4e0;
-  border-radius: 0;
-}
-.inline-date-input.inferred:focus {
-  font-style: normal;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-}
-/* Native <input type="date"> renders the year using whatever date format the OS/browser
-   locale resolves to - on some locales (seen on Windows) that's the full "YYYY-MM-DD" form,
-   which overflows this cell's ~87px width and gets clipped to "20..". Hiding just the year
-   sub-field keeps the cell to "MM/DD" regardless of locale (Chrome/Edge only - the stored
-   date value and the calendar-icon picker, including picking a different year, are both
-   unaffected; this only hides the inline year *text*). */
-.inline-date-input::-webkit-datetime-edit-year-field {
-  display: none;
+  font-weight: 600;
 }
 .left-cell:first-child {
   border-left: none;
