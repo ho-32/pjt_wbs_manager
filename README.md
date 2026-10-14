@@ -25,6 +25,13 @@ npm run dev           # server(4000)와 client(5173)를 동시에 실행
 
 개별 실행: `npm run dev:server`, `npm run dev:client`
 
+### 같은 LAN의 다른 기기에서 접속하기
+
+`npm run dev` 실행 시 vite가 콘솔에 `Network: http://<내 PC의 LAN IP>:5173/` 주소를 함께 출력합니다(`client/vite.config.ts`의 `server.host: true` 설정 덕분 — 기본값은 `localhost`에만 바인딩되어 같은 네트워크의 다른 기기에서는 접속 자체가 안 됨). 같은 와이파이/공유기에 연결된 휴대폰·다른 PC 등에서 그 주소로 접속하면 됩니다.
+
+- `/api` 요청은 여전히 vite 서버가 **자기 자신의 localhost:4000**으로 내부 프록시하므로, 다른 기기가 접속할 때 실제로 열려 있어야 하는 포트는 **5173 하나뿐**입니다.
+- 그래도 접속이 안 된다면 이 PC의 방화벽(Windows 방화벽, ufw 등)이 5173번 포트로 들어오는 연결을 막고 있는지 확인하세요 — 코드로는 더 손댈 부분이 없고, OS 방화벽 설정의 영역입니다.
+
 ---
 
 ## 주요 기능
